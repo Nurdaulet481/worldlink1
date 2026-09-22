@@ -2,13 +2,13 @@
 
 {% block content %}
 <div class="profile-container" data-target-id="{{ target_user_id }}">
-    <div class="profile-card">
-        <div class="profile-header-bg"></div>
-        <div class="profile-main-info">
+    <div class="profile-main-info">
             <div class="profile-avatar" id="profAvatar">?</div>
             <div class="profile-actions">
                 <button id="subBtn" class="btn-sub" style="display: none;">Подписаться</button>
                 <button id="editBtn" class="btn-edit" style="display: none;">Редактировать профиль</button>
+                <!-- Новая кнопка выхода (показывается только в своем профиле) -->
+                <a href="/logout" id="logoutBtn" class="btn-logout" style="display: none; text-decoration: none; align-items: center; justify-content: center;">Выйти</a>
             </div>
         </div>
 
@@ -37,6 +37,8 @@
             </div>
         </div>
     </div>
+
+    
 
     <!-- Вкладки: Посты, Репосты, Лайки, Сохраненные -->
     <div class="profile-tabs">
