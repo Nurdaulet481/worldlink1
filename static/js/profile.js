@@ -258,6 +258,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const logoutBtn = document.getElementById('logoutBtn');
+if (logoutBtn) {
+    // Показывать кнопку выхода только если это профиль текущего пользователя
+    logoutBtn.style.display = isSelf ? 'inline-block' : 'none';
+}
+
     // Первичная загрузка
     await loadUserProfile();
     await loadPosts(activeTab);
