@@ -159,16 +159,17 @@ def login():
 def register():
     if request.method == 'POST':
         username = request.form.get('username')
-        name = request.form.get('name')
         email = request.form.get('email')
         password = request.form.get('password')
 
-        if not username or not password or not name:
+        if not username or not password or not email:
             flash('Заполните все обязательные поля', 'danger')
             return redirect(url_for('register'))
 
+        # Автоматически используем никнейм как имя (name)
+        name = username 
         password_hash = generate_password_hash(password)
-        avatar = name[0].upper()  # Первая буква имени как аватар по умолчанию
+        avatar = name[0].upper()  # Первая буква для аватара
 
         conn = get_db()
         cursor = conn.cursor()
@@ -188,7 +189,6 @@ def register():
             conn.close()
 
     return render_template('register.html')
-
 
 @app.route('/logout')
 def logout():
