@@ -135,21 +135,13 @@ def get_current_user_id():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
+        email = request.form.get('email')  # Исправили username на email
         password = request.form.get('password')
 
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-        # Для psycopg2 синтаксис заполнителей %s, заменим на безопасный запрос:
-        # (в postgresql используется %s, но в ряде оберток идет автоконвертация. Надежнее писать %s)
-        cursor.close()
-        conn.close()
-
-        # Исправленный блок поиска под psycopg2 (%s):
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, username))
+        # Ищем пользователя в базе по email
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
         user = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -159,10 +151,9 @@ def login():
             session['username'] = user['username']
             return redirect(url_for('index'))
         else:
-            flash('Неверное имя пользователя или пароль', 'danger')
+            flash('Неверный email или пароль', 'danger')
 
-    return render_template('login.html')  # Убедитесь, что у вас есть этот шаблон (или верните форму)
-
+    return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
