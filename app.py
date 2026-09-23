@@ -41,7 +41,7 @@ def init_db():
         )
     ''')
 
-    # Таблица чатов
+    # Таблица чатов (оставляем для совместимости, но теперь чаты динамические)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS chats (
             id SERIAL PRIMARY KEY,
@@ -50,15 +50,17 @@ def init_db():
         )
     ''')
 
-    # Таблица сообщений
+    # Таблица сообщений (добавили recipient_id для личных переписок)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
-            chat_id INTEGER NOT NULL REFERENCES chats(id),
+            chat_id INTEGER,
             text TEXT,
             filename TEXT,
             sender TEXT NOT NULL,
-            time TEXT NOT NULL
+            time TEXT NOT NULL,
+            sender_id INTEGER,
+            recipient_id INTEGER
         )
     ''')
 
@@ -111,12 +113,6 @@ def init_db():
         )
     ''')
 
-    # Начальные чаты (если пусто)
-    cursor.execute("SELECT COUNT(*) FROM chats")
-    if cursor.fetchone()['count'] == 0:
-        cursor.execute("INSERT INTO chats (id, name, avatar) VALUES (1, 'Алексей Смирнов', 'А')")
-        cursor.execute("INSERT INTO chats (id, name, avatar) VALUES (2, 'Мария Иванова', 'М')")
-
     conn.commit()
     cursor.close()
     conn.close()
@@ -135,13 +131,12 @@ def get_current_user_id():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form.get('email')  # Исправили username на email
+        username = request.form.get('username')
         password = request.form.get('password')
 
         conn = get_db()
         cursor = conn.cursor()
-        # Ищем пользователя в базе по email
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, username))
         user = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -151,25 +146,45 @@ def login():
             session['username'] = user['username']
             return redirect(url_for('index'))
         else:
-            flash('Неверный email или пароль', 'danger')
+            flash('Неверное имя пользователя или пароль', 'danger')
 
     return render_template('login.html')
+
+
+@app.route('/api/users/search', methods=['GET'])
+def search_users():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    query = request.args.get('q', '').strip()
+    current_user_id = get_current_user_id()
+
+    conn = get_db()
+    cursor = conn.cursor()
+    # Ищем пользователей по имени или никнейму, исключая самого себя
+    cursor.execute(
+        "SELECT id, name, username, avatar FROM users WHERE (username ILIKE %s OR name ILIKE %s) AND id != %s LIMIT 10",
+        (f"%{query}%", f"%{query}%", current_user_id)
+    )
+    users = [{"id": row["id"], "name": row["name"], "username": row["username"], "avatar": row["avatar"]} for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return jsonify(users)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         username = request.form.get('username')
+        name = request.form.get('name')
         email = request.form.get('email')
         password = request.form.get('password')
 
-        if not username or not password or not email:
+        if not username or not password or not name:
             flash('Заполните все обязательные поля', 'danger')
             return redirect(url_for('register'))
 
-        # Автоматически используем никнейм как имя (name)
-        name = username 
         password_hash = generate_password_hash(password)
-        avatar = name[0].upper()  # Первая буква для аватара
+        avatar = name[0].upper()  # Первая буква имени как аватар по умолчанию
 
         conn = get_db()
         cursor = conn.cursor()
@@ -189,6 +204,7 @@ def register():
             conn.close()
 
     return render_template('register.html')
+
 
 @app.route('/logout')
 def logout():
@@ -377,26 +393,35 @@ def get_subscriptions_feed():
 def get_chats():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name, avatar FROM chats")
-    chats = [{"id": row["id"], "name": row["name"], "avatar": row["avatar"]} for row in cursor.fetchall()]
-    cursor.close()
-    conn.close()
-    return jsonify(chats)
+    return jsonify([])
 
 
-@app.route('/api/messages/<int:chat_id>', methods=['GET'])
-def get_messages(chat_id):
+@app.route('/api/messages/<int:recipient_id>', methods=['GET'])
+def get_messages(recipient_id):
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
+    current_user_id = get_current_user_id()
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT text, filename, sender, time FROM messages WHERE chat_id = %s", (chat_id,))
-    messages = [
-        {"text": row["text"], "filename": row["filename"], "sender": row["sender"], "time": row["time"]}
-        for row in cursor.fetchall()
-    ]
+    
+    # Достаем сообщения между текущим пользователем и выбранным получателем
+    cursor.execute('''
+        SELECT text, filename, sender, time, sender_id 
+        FROM messages 
+        WHERE (sender_id = %s AND recipient_id = %s) OR (sender_id = %s AND recipient_id = %s)
+        ORDER BY id ASC
+    ''', (current_user_id, recipient_id, recipient_id, current_user_id))
+    
+    messages = []
+    for row in cursor.fetchall():
+        sender_type = 'outgoing' if row["sender_id"] == current_user_id else 'incoming'
+        messages.append({
+            "text": row["text"],
+            "filename": row["filename"],
+            "sender": sender_type,
+            "time": row["time"]
+        })
+        
     cursor.close()
     conn.close()
     return jsonify(messages)
@@ -406,30 +431,27 @@ def get_messages(chat_id):
 def send_message():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
+    current_user_id = get_current_user_id()
+    
     filename = ""
+    recipient_id = request.form.get('recipient_id')
+    text = request.form.get('text', '')
+    time_str = request.form.get('time', '')
+    
     if request.files and 'file' in request.files:
         file = request.files['file']
         if file and file.filename != '':
             filename = secure_filename(file.filename)
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        chat_id = request.form.get('chat_id')
-        text = request.form.get('text', '')
-        time_str = request.form.get('time', '')
-    else:
-        data = request.json or {}
-        chat_id = data.get('chat_id')
-        text = data.get('text', '')
-        filename = data.get('filename', '')
-        time_str = data.get('time', '')
 
-    if not chat_id:
-        return jsonify({"status": "error", "message": "No chat_id provided"}), 400
+    if not recipient_id:
+        return jsonify({"status": "error", "message": "No recipient_id provided"}), 400
 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO messages (chat_id, text, filename, sender, time) VALUES (%s, %s, %s, 'outgoing', %s)",
-        (chat_id, text, filename, time_str)
+        "INSERT INTO messages (text, filename, sender, time, sender_id, recipient_id) VALUES (%s, %s, 'outgoing', %s, %s, %s)",
+        (text, filename, time_str, current_user_id, recipient_id)
     )
     conn.commit()
     cursor.close()
