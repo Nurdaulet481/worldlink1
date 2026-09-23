@@ -1748,17 +1748,3 @@ body {
     color: #c62828;
     border: 1px solid #ffcdd2;
 }
-.btn-logout {
-    background-color: #fee2e2;
-    color: #dc2626;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.btn-logout:hover {
-    background-color: #fecaca;
-}
