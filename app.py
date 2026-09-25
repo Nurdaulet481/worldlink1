@@ -650,38 +650,104 @@ def get_user_posts(user_id):
 
 @app.route('/api/posts/create', methods=['POST'])
 def create_post():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
+
+    if not is_logged_in():
+        return jsonify({
+            "error": "Unauthorized"
+        }), 401
+
     current_user_id = get_current_user_id()
 
     if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "Файл не загружен"}), 400
+        return jsonify({
+            "status": "error",
+            "message": "Файл не загружен"
+        }), 400
 
     file = request.files['file']
-    caption = request.form.get('caption', '')
+    caption = request.form.get('caption', '').strip()
 
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "Файл не выбран"}), 400
+    if not file or not file.filename:
+        return jsonify({
+            "status": "error",
+            "message": "Файл не выбран"
+        }), 400
 
     filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
 
-    file_url = f"/static/uploads/{filename}"
-    media_type = 'video' if filename.lower().endswith(('.mp4', '.mov', '.avi', '.webm')) else 'image'
+    # Определяем тип файла
+    extension = filename.lower().split('.')[-1]
 
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO posts (user_id, file_url, media_type, caption) VALUES (%s, %s, %s, %s) RETURNING id",
-        (current_user_id, file_url, media_type, caption)
-    )
-    post_id = cursor.fetchone()['id']
-    conn.commit()
-    cursor.close()
-    conn.close()
+    video_extensions = {
+        'mp4',
+        'mov',
+        'avi',
+        'webm',
+        'mkv'
+    }
 
-    return jsonify({"status": "success", "post_id": post_id, "file_url": file_url})
+    if extension in video_extensions:
+        media_type = 'video'
+        resource_type = 'video'
+    else:
+        media_type = 'image'
+        resource_type = 'image'
+
+    try:
+
+        # Загружаем файл в Cloudinary
+        result = cloudinary.uploader.upload(
+            file,
+            resource_type=resource_type,
+            folder='worldlink/posts'
+        )
+
+        # URL файла в Cloudinary
+        file_url = result['secure_url']
+
+        # Сохраняем только URL в PostgreSQL
+        conn = get_db()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO posts
+            (
+                user_id,
+                file_url,
+                media_type,
+                caption
+            )
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        """, (
+            current_user_id,
+            file_url,
+            media_type,
+            caption
+        ))
+
+        post_id = cursor.fetchone()['id']
+
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "status": "success",
+            "post_id": post_id,
+            "file_url": file_url,
+            "media_type": media_type
+        })
+
+    except Exception as e:
+
+        print("Cloudinary upload error:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": "Не удалось загрузить файл"
+        }), 500
 
 
 @app.route('/api/posts/<int:post_id>/like', methods=['POST'])
