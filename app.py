@@ -17,6 +17,8 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # Подключение к PostgreSQL (на Render берется из переменной окружения DATABASE_URL, локально — запасная строка)
 DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/worldlink_db')
 
+print("DATABASE:", DATABASE_URL)
+
 
 def get_db():
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
