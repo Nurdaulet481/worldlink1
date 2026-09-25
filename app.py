@@ -138,7 +138,10 @@ def login():
 
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, username))
+        cursor.execute(
+    "SELECT * FROM users WHERE (username = %s OR email = %s) AND is_active = TRUE",
+    (username, username)
+)
         user = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -176,31 +179,50 @@ def search_users():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form.get('username')
-        name = request.form.get('name')
-        email = request.form.get('email')
-        password = request.form.get('password')
+        username = request.form.get('username', '').strip()
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
 
-        if not username or not password or not name:
-            flash('Заполните все обязательные поля', 'danger')
+        if not username or not name or not email or not password:
+            flash('Заполните все поля', 'danger')
             return redirect(url_for('register'))
 
         password_hash = generate_password_hash(password)
-        avatar = name[0].upper()  # Первая буква имени как аватар по умолчанию
+        avatar = name[0].upper()
 
         conn = get_db()
         cursor = conn.cursor()
+
         try:
             cursor.execute(
-                "INSERT INTO users (username, email, password_hash, name, avatar) VALUES (%s, %s, %s, %s, %s)",
+                "SELECT id FROM users WHERE username = %s OR email = %s",
+                (username, email)
+            )
+
+            if cursor.fetchone():
+                flash('Пользователь с таким именем или email уже существует', 'danger')
+                return redirect(url_for('register'))
+
+            cursor.execute(
+                """
+                INSERT INTO users
+                (username, email, password_hash, name, avatar, is_active)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                """,
                 (username, email, password_hash, name, avatar)
             )
+
             conn.commit()
+
             flash('Регистрация прошла успешно! Теперь войдите.', 'success')
             return redirect(url_for('login'))
+
         except Exception as e:
             conn.rollback()
-            flash('Пользователь с таким именем или email уже существует', 'danger')
+            print(f"Registration error: {e}")
+            flash('Ошибка при регистрации', 'danger')
+
         finally:
             cursor.close()
             conn.close()
